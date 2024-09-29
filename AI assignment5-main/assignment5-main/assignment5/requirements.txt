@@ -1,5 +1,0 @@
-yfinance
-numpy
-pandas
-matplotlib
-hmmlearn
