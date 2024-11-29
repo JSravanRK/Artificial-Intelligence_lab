@@ -1,157 +1,71 @@
-#! /usr/bin/env python3
-from collections import Counter
 import random
-class Board:
+from collections import defaultdict
+class MENACE:
     def _init_(self):
-        self.board = [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ']
-    def _str_(self):
-        return("\n 0 | 1 | 2     %s | %s | %s\n"
-               "---+---+---   ---+---+---\n"
-               " 3 | 4 | 5     %s | %s | %s\n"
-               "---+---+---   ---+---+---\n"
-               " 6 | 7 | 8     %s | %s | %s" % (self.board[0], self.board[1], self.board[2],
-                                                self.board[3], self.board[4], self.board[5],
-                                                self.board[6], self.board[7], self.board[8]))
-    def valid_move(self, move):
-        try:
-            move = int(move)
-        except ValueError:
-            return False
-        if 0 <= move <= 8 and self.board[move] == ' ':
-            return True
-        return False
-    def winning(self):
-        return ((self.board[0] != ' ' and
-                 ((self.board[0] == self.board[1] == self.board[2]) or
-                  (self.board[0] == self.board[3] == self.board[6]) or
-                  (self.board[0] == self.board[4] == self.board[8])))
-                or (self.board[4] != ' ' and
-                    ((self.board[1] == self.board[4] == self.board[7]) or
-                    (self.board[3] == self.board[4] == self.board[5]) or
-                    (self.board[2] == self.board[4] == self.board[6])))
-                or (self.board[8] != ' ' and
-                    ((self.board[2] == self.board[5] == self.board[8]) or
-                    (self.board[6] == self.board[7] == self.board[8]))))
-    def draw(self):
-        return all((x != ' ' for x in self.board))
-    def play_move(self, position, marker):
-        self.board[position] = marker
-    def board_string(self):
-        return ''.join(self.board)
-class MenacePlayer:
-    def _init_(self):
-        self.matchboxes = {}
-        self.num_win = 0
-        self.num_draw = 0
-        self.num_lose = 0
-    def start_game(self):
-        self.moves_played = []
-    def get_move(self, board):
-        board = board.board_string()
-        if board not in self.matchboxes:
-            new_beads = [pos for pos, mark in enumerate(board) if mark == ' ']
-            self.matchboxes[board] = new_beads * ((len(new_beads) + 2) // 2)
-        beads = self.matchboxes[board]
-        if len(beads):
-            bead = random.choice(beads)
-            self.moves_played.append((board, bead))
-        else:
-            bead = -1
-        return bead
-    def win_game(self):
-        for (board, bead) in self.moves_played:
-            self.matchboxes[board].extend([bead, bead, bead])
-        self.num_win += 1
-    def draw_game(self):
-        for (board, bead) in self.moves_played:
-            self.matchboxes[board].append(bead)
-        self.num_draw += 1
-    def lose_game(self):
-        for (board, bead) in self.moves_played:
-            matchbox = self.matchboxes[board]
-            del matchbox[matchbox.index(bead)]
-        self.num_lose += 1
-    def print_stats(self):
-        print('Have learnt %d boards' % len(self.matchboxes))
-        print('W/D/L: %d/%d/%d' % (self.num_win, self.num_draw, self.num_lose))
-    def print_probability(self, board):
-        board = board.board_string()
-        try:
-            print("Stats for this board: " +
-                  str(Counter(self.matchboxes[board]).most_common()))
-        except KeyError:
-            print("Never seen this board before.")
-class HumanPlayer:
-    def _init_(self):
-        pass
-    def start_game(self):
-        print("Get ready!")
-    def get_move(self, board):
-        while True:
-            move = input('Make a move: ')
-            if board.valid_move(move):
+        self.matchboxes = defaultdict(lambda: defaultdict(int))  # Maps board states to bead counts
+        self.history = []  # Tracks moves for learning
+
+    def initialize_matchbox(self, board_state):
+        if board_state not in self.matchboxes:
+            for i in range(9):  # Add all possible moves with 1 bead
+                if board_state[i] == " ":
+                    self.matchboxes[board_state][i] = 1
+    def choose_move(self, board_state):
+        self.initialize_matchbox(board_state)
+        moves = self.matchboxes[board_state]
+        total_beads = sum(moves.values())
+        if total_beads == 0:
+            return random.choice([i for i, cell in enumerate(board_state) if cell == " "])
+        probabilities = [moves[i] / total_beads for i in range(9)]
+        chosen_move = random.choices(range(9), weights=probabilities, k=1)[0]
+        self.history.append((board_state, chosen_move))
+        return chosen_move
+    def update_matchboxes(self, result):
+        for board_state, move in self.history:
+            if result == 1:  # MENACE won
+                self.matchboxes[board_state][move] += 3
+            elif result == -1:  # MENACE lost
+                self.matchboxes[board_state][move] = max(1, self.matchboxes[board_state][move] - 1)
+            # No changes for a draw
+        self.history = []
+
+def display_board(board):
+    for i in range(0, 9, 3):
+        print(" | ".join(board[i:i+3]))
+        if i < 6:
+            print("-" * 5)
+
+def check_winner(board, player):
+    win_positions = [(0, 1, 2), (3, 4, 5), (6, 7, 8),  # Rows
+                     (0, 3, 6), (1, 4, 7), (2, 5, 8),  # Columns
+                     (0, 4, 8), (2, 4, 6)]  # Diagonals
+    return any(all(board[i] == player for i in line) for line in win_positions)
+
+def play_game():
+    menace = MENACE()
+    for game in range(10):  # Play multiple games to train MENACE
+        board = [" "] * 9
+        current_player = "X"
+        result = 0
+        while " " in board:
+            if current_player == "X":
+                print("MENACE's turn:")
+                move = menace.choose_move(tuple(board))
+            else:
+                print("Your turn:")
+                display_board(board)
+                move = int(input("Enter your move (0-8): "))
+                while board[move] != " ":
+                    move = int(input("Invalid move. Try again: "))
+            board[move] = current_player
+            display_board(board)
+            if check_winner(board, current_player):
+                result = 1 if current_player == "X" else -1
+                print(f"{current_player} wins!")
                 break
-            print("Not a valid move")
-        return int(move)
-    def win_game(self):
-        print("You won!")
-    def draw_game(self):
-        print("It's a draw.")
-    def lose_game(self):
-        print("You lose.")
-    def print_probability(self, board):
-        pass
-def play_game(first, second, silent=False):
-    first.start_game()
-    second.start_game()
-    board = Board()
-    if not silent:
-        print("\n\nStarting a new game!")
-        print(board)
-    while True:
-        if not silent:
-            first.print_probability(board)
-        move = first.get_move(board)
-        if move == -1:
-            if not silent:
-                print("Player resigns")
-            first.lose_game()
-            second.win_game()
-            break
-        board.play_move(move, 'X')
-        if not silent:
-            print(board)
-        if board.winning():
-            first.win_game()
-            second.lose_game()
-            break
-        if board.draw():
-            first.draw_game()
-            second.draw_game()
-            break
-        if not silent:
-            second.print_probability(board)
-        move = second.get_move(board)
-        if move == -1:
-            if not silent:
-                print("Player resigns")
-            second.lose_game()
-            first.win_game()
-            break
-        board.play_move(move, 'O')
-        if not silent:
-            print(board)
-        if board.winning():
-            second.win_game()
-            first.lose_game()
-            break
-if _name_ == '_main_':
-    go_first_menace = MenacePlayer()
-    go_second_menace = MenacePlayer()
-    human = HumanPlayer()
-    for i in range(1000):
-        play_game(go_first_menace, go_second_menace, silent=True)
-    go_first_menace.print_stats()
-    go_second_menace.print_stats()
-    play_game(go_first_menace, human)
-    play_game(human, go_second_menace)
+            current_player = "O" if current_player == "X" else "X"
+        if result == 0:
+            print("It's a draw!")
+        menace.update_matchboxes(result)
+if _name_ == "_main_":
+    play_game()
